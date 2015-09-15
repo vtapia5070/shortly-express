@@ -2,6 +2,8 @@ var express = require('express');
 var util = require('./lib/utility');
 var partials = require('express-partials');
 var bodyParser = require('body-parser');
+var cookieParser  = require("cookie-parser");
+var crypto = require('crypto');
 
 
 var db = require('./app/config');
@@ -22,9 +24,33 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(__dirname + '/public'));
 
+app.use(cookieParser());
+// app.use(express.sessions({
+//   secret: ""
+// }))
+// app.get('', function(req, res){
+//   res.cookie('username', req.params.user)
+//     .send()
+// })
 
-app.get('/', 
-function(req, res) {
+app.all("/", function(req, res, next) {
+  checkUser(req.cookies, res, next);
+});
+
+function checkUser(cookies, res, next) {
+  Users.query({where: {username: cookies.username, password: cookies.password}}).fetch().then(function(model) {
+   if(model.length === 0) {
+    res.redirect(302, "/login");
+    return;
+   }
+    next()
+  })
+}
+
+app.get('/', function(req, res) {
+  console.log(req.cookies)
+  res.cookie('username', 'Phillip')
+  // res.cookie('password', "95021406637b46dbf42b5b83a5dcf5ba4f1137f1");
   res.render('index');
 });
 
@@ -33,17 +59,22 @@ function(req, res) {
   res.render('index');
 });
 
-app.get('/links', 
-function(req, res) {
+app.get('/login', function(req,res) {
+  res.render('login');
+});
+
+app.get('/signup', function(req,res) {
+  res.render('signup');
+});
+
+app.get('/links', function(req, res) {
   Links.reset().fetch().then(function(links) {
     res.send(200, links.models);
   });
 });
 
-app.post('/links', 
-function(req, res) {
+app.post('/links', function(req, res) {
   var uri = req.body.url;
-
   if (!util.isValidUrl(uri)) {
     console.log('Not a valid url: ', uri);
     return res.send(404);
@@ -77,8 +108,35 @@ function(req, res) {
 /************************************************************/
 // Write your authentication routes here
 /************************************************************/
+app.post('/login', function(req, res) {
+  Users.query({where: {username: req.body.username}}).fetchOne().then(function(user) {
+    if (!user) {
+      res.render('signup', { error: 'No email in database' });
+    } else {
+      var hash = hashPassword(req.body.password);
+      console.log(hash);
+      console.log(user.attributes.password)
+      console.log(user.attributes.password === hash)
+      if (hash === user.attributes.password) {
 
+        // sets a cookie with the user's info
+        //console.log(req.body);
+        //res.cookie("user", user)
+        res.cookie("username", req.body.username);
+        res.cookie("password", hash);
+        res.redirect('/');
+      } else {
+        res.render('login', { error: 'Invalid email or password.' });
+      }
+    }
+  });
+});
 
+function hashPassword(str) {
+  var shasum = crypto.createHash('sha1');
+  shasum.update(str);
+  return shasum.digest('hex');
+};
 
 /************************************************************/
 // Handle the wildcard route last - if all other routes fail
