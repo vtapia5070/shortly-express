@@ -25,41 +25,40 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(__dirname + '/public'));
 
 app.use(cookieParser());
-// app.use(express.sessions({
-//   secret: ""
-// }))
-// app.get('', function(req, res){
-//   res.cookie('username', req.params.user)
-//     .send()
-// })
 
 app.all("/", function(req, res, next) {
   checkUser(req.cookies, res, next);
 });
 
+app.all("/create", function(req, res, next) {
+  checkUser(req.cookies, res, next);
+});
+
+app.all("/links", function(req, res, next) {
+  checkUser(req.cookies, res, next);
+});
+
 function checkUser(cookies, res, next) {
   Users.query({where: {username: cookies.username, password: cookies.password}}).fetch().then(function(model) {
-   if(model.length === 0) {
+   if (model.length === 0) {
     res.redirect(302, "/login");
     return;
    }
-    next()
-  })
+    next();
+  });
 }
 
 app.get('/', function(req, res) {
-  console.log(req.cookies)
-  res.cookie('username', 'Phillip')
-  // res.cookie('password', "95021406637b46dbf42b5b83a5dcf5ba4f1137f1");
   res.render('index');
 });
 
-app.get('/create', 
-function(req, res) {
+app.get('/create', function(req, res) {
   res.render('index');
 });
 
 app.get('/login', function(req,res) {
+  res.cookie('username', "");
+  res.cookie('password', "");
   res.render('login');
 });
 
@@ -68,9 +67,13 @@ app.get('/signup', function(req,res) {
 });
 
 app.get('/links', function(req, res) {
-  Links.reset().fetch().then(function(links) {
-    res.send(200, links.models);
+  Users.query({where: {username: req.cookies.username, password: req.cookies.password}}).fetchOne().then(function (model) {
+    Links.reset().query({where: {user_id: model.attributes.id}}).fetch().then(function(links) {
+      res.send(200, links.models);
+    });
   });
+
+
 });
 
 app.post('/links', function(req, res) {
@@ -89,44 +92,39 @@ app.post('/links', function(req, res) {
           console.log('Error reading URL heading: ', err);
           return res.send(404);
         }
+        var link;
+        Users.query({where: {username: req.cookies.username, password: req.cookies.password}}).fetchOne().then(function (model) {
+          console.log(model.attributes);
+          link = new Link({
+            url: uri,
+            title: title,
+            user_id: model.attributes.id,
+            base_url: req.headers.origin,
+          });
 
-        var link = new Link({
-          url: uri,
-          title: title,
-          base_url: req.headers.origin
-        });
+          link.save().then(function(newLink) {
+            Links.add(newLink);
+            res.send(200, newLink);
+          })
 
-        link.save().then(function(newLink) {
-          Links.add(newLink);
-          res.send(200, newLink);
         });
       });
     }
   });
 });
 
-/************************************************************/
-// Write your authentication routes here
-/************************************************************/
 app.post('/login', function(req, res) {
   Users.query({where: {username: req.body.username}}).fetchOne().then(function(user) {
     if (!user) {
-      res.render('signup', { error: 'No email in database' });
+      res.render('signup', { error: 'No user in database' });
     } else {
       var hash = hashPassword(req.body.password);
-      console.log(hash);
-      console.log(user.attributes.password)
-      console.log(user.attributes.password === hash)
       if (hash === user.attributes.password) {
-
-        // sets a cookie with the user's info
-        //console.log(req.body);
-        //res.cookie("user", user)
         res.cookie("username", req.body.username);
         res.cookie("password", hash);
         res.redirect('/');
       } else {
-        res.render('login', { error: 'Invalid email or password.' });
+        res.render('login', { error: 'Invalid user or password.' });
       }
     }
   });
@@ -138,11 +136,22 @@ function hashPassword(str) {
   return shasum.digest('hex');
 };
 
-/************************************************************/
-// Handle the wildcard route last - if all other routes fail
-// assume the route is a short code and try and handle it here.
-// If the short-code doesn't exist, send the user to '/'
-/************************************************************/
+app.post('/signup', function(req, res) {
+  Users.query({where: {username: req.body.username}}).fetchOne().then(function(user) {
+    console.log(user);
+    if (user) {
+      res.render('login', { error: 'user in database' });
+    } else {
+      //User does not exsist
+      var user = new User({
+        'username': req.body.username,
+        'password': req.body.password
+      }).save().then(function() {
+        res.render('login');
+      });
+    }
+  });
+});
 
 app.get('/*', function(req, res) {
   new Link({ code: req.params[0] }).fetch().then(function(link) {
